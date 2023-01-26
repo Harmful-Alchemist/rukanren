@@ -119,15 +119,13 @@ where
     // move |(s, c): (Substitution<T>, T)| bind(g1((s, c)), g2) TODO was this but won't work with using g2.... Can't move..
     move |(s, c): (Substitution<T>, T)| {
         let mut ret = Vec::new();
+        // TODO not infinite
         for st in g1((s, c)) {
             let mut x = g2(st.clone());
             if !x.is_empty() {
                 ret.append(&mut x);
             }
         }
-        // for st in g1((s, c) {
-        //     mplus()g2(st)
-        // }
         return ret;
     }
 }
