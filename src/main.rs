@@ -17,17 +17,16 @@ where
     Object(T),
 }
 
-fn walk<T: Eq>(u: &Term<T>, mut s: Substitution<T>) -> &Term<T>
+fn walk<T: Eq>(u: &Term<T>, s: Substitution<T>) -> Term<T>
 where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
 {
-    match &u {
-        Var(_) if s.contains_key(u) => {
-            s.remove(u);
-            walk(u, s)
-        }
-        _ => u,
-    }
+    let mut pr = u;
+    while s.contains_key(pr) {
+        pr = s.get(pr).unwrap();
+    };
+
+    return pr.clone();
 }
 
 type Substitution<T> = HashMap<Term<T>, Term<T>>;
@@ -37,6 +36,7 @@ where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
 {
     if let Var(_) = &x {
+        // Doesn't allow multiple substitutions of single var....
         s.insert(x, v);
         return s;
     }
@@ -73,8 +73,8 @@ fn unify<T>(u: &Term<T>, v: &Term<T>, s: Substitution<T>) -> Option<Substitution
 where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
 {
-    let u = walk(u, s.clone());
-    let v = walk(v, s.clone());
+    let u = &walk(u, s.clone());
+    let v = &walk(v, s.clone());
     match (u, v) {
         (Var(_), Var(_)) if u == v => Some(s),
         (Var(_), _) => Some(ext_s(u.clone(), v.clone(), s)),
