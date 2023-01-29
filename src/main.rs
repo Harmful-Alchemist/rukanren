@@ -56,7 +56,7 @@ where
     }
 }
 
-struct EqStream<T>
+struct EqIterator<T>
 where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
@@ -67,7 +67,7 @@ where
     done: bool,
 }
 
-impl<T> Iterator for EqStream<T>
+impl<T> Iterator for EqIterator<T>
 where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
@@ -113,7 +113,7 @@ where
         s: Substitution<T>,
         c: T,
     ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
-        Box::new(EqStream {
+        Box::new(EqIterator {
             u: Var(c.clone()),
             v: (&self.obj).clone(),
             s,
@@ -252,6 +252,8 @@ fn main() {
     let conj = Conj {
         g1: Rc::new(Box::new(CallFresh::new(Object(7)))),
         g2: Rc::new(Box::new(Disj {
+            // Hmm is this correct? It prints the right, but that's just cause Var(0) can only be 7. If it could be more maybe wrong? Disj, both can be true and we don't have
+            // y = 5 /\ y = 6 but we have y=5 /\ z=6. But maybe is ok since only 2 entries so far. Let's see when we extend.
             g1: Rc::new(Box::new(CallFresh::new(Object(5)))),
             g2: Rc::new(Box::new(CallFresh::new(Object(6)))),
         })),
@@ -275,9 +277,19 @@ fn main() {
         println!("length: {size} count: {count}");
         println!("=======================================================");
         breaking += 1;
-        if breaking > 5 {
+        if breaking > 3 {
             break;
         }
+    }
+
+    // well these are
+    let noanswer = Conj {
+        g1: Rc::new(Box::new(CallFresh { obj: Object(3) })),
+        g2: Rc::new(Box::new((CallFresh { obj: Var(0) }))),
+    };
+
+    for s in noanswer.from_state(s.clone(), c.clone()) {
+        println!("dunno {s:?}")
     }
 }
 
@@ -339,6 +351,7 @@ where
 
         cf.from_state(self.s.clone(), self.c.clone()).next()
         // I like below better but not what it should do......, as it can evolve the state
+
         // let next = self.next.get_mut().next();
         // if let Some((s, c)) = next {
         //     let cf = CallFresh {
