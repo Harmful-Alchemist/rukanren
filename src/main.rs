@@ -242,8 +242,8 @@ where
 }
 
 fn unify<T>(u: &Term<T>, v: &Term<T>, s: &mut Substitution<T>) -> bool
-    where
-        T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
 {
     let u = &walk(u, s.clone());
     let v = &walk(v, s.clone());
@@ -296,17 +296,14 @@ fn main() {
         s: Box::new(Eq_ { t: Object(7) }),
     }));
 
-    let conj = Conj {
-        g1: Rc::new(Box::new(CallFresh {
+    let conj = conj_plus!(
+        CallFresh {
             s: Box::new(Eq_ { t: Object(7) }),
-        })),
-        g2: Rc::new(Box::new(CallFresh {
-            s: Box::new(Disj {
-                g1: Rc::new(Box::new(Eq_ { t: Object(5) })),
-                g2: Rc::new(Box::new(Eq_ { t: Object(6) })),
-            }),
-        })),
-    };
+        },
+        CallFresh {
+            s: Box::new(disj_plus!(Eq_ { t: Object(5) }, Eq_ { t: Object(6) }))
+        }
+    );
 
     for s in conj.from_state(s.clone(), c.clone()) {
         println!("trd: {s:?}");
@@ -346,19 +343,29 @@ fn main() {
     }
 }
 
+#[macro_export]
+macro_rules! conj_plus {
+    ($head:expr) => ($head);
+    ($head:expr $(, $tail:expr)*) => (Conj { g1: Rc::new(Box::new($head)), g2: Rc::new(Box::new(conj_plus!($($tail),*)))});
+}
 
+#[macro_export]
+macro_rules! disj_plus {
+    ($head:expr) => ($head);
+    ($head:expr $(, $tail:expr)*) => (Disj { g1: Rc::new(Box::new($head)), g2: Rc::new(Box::new(disj_plus!($($tail),*)))});
+}
 
 //Impl stuff.......
 struct Fives<T>
-    where
-        T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
     x: Term<T>,
 }
 
 impl<T> Stream<T> for Fives<T>
-    where
-        T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
     fn from_state(
         &self,
@@ -370,8 +377,8 @@ impl<T> Stream<T> for Fives<T>
 }
 
 struct FivesIterator<T>
-    where
-        T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
     x: Term<T>,
     s: Substitution<T>,
@@ -379,21 +386,17 @@ struct FivesIterator<T>
 }
 
 impl<T> FivesIterator<T>
-    where
-        T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
     fn new(x: Term<T>, s: Substitution<T>, c: T) -> Self {
-        Self {
-            x,
-            c,
-            s,
-        }
+        Self { x, c, s }
     }
 }
 
 impl<T> Iterator for FivesIterator<T>
-    where
-        T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
     type Item = (Substitution<T>, T);
 
@@ -402,4 +405,3 @@ impl<T> Iterator for FivesIterator<T>
         eq.from_state(self.s.clone(), self.c.clone()).next()
     }
 }
-
