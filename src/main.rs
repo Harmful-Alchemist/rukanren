@@ -1,5 +1,6 @@
 // From http://webyrd.net/scheme-2013/papers/HemannMuKanren2013.pdf
 
+use std::cell::RefCell;
 // use crate::Term::{Object, Pair, Var};
 use crate::Term::{Object, Var};
 use std::cmp::Eq;
@@ -12,16 +13,27 @@ use std::rc::Rc;
 #[derive(PartialEq, Eq, Debug, Hash, Clone)]
 enum Term<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
     Var(T),
     // Pair(Box<Term<T>>, Box<Term<T>>),
     Object(T),
 }
 
+trait Stream<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    fn from_state(
+        &self,
+        s: Substitution<T>,
+        c: T,
+    ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>>;
+}
+
 fn walk<T: Eq>(u: &Term<T>, s: Substitution<T>) -> Term<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
     let mut pr = u;
     while s.contains_key(pr) {
@@ -33,208 +45,298 @@ where
 
 type Substitution<T> = HashMap<Term<T>, Term<T>>;
 
-fn ext_s<T>(x: Term<T>, v: Term<T>, mut s: Substitution<T>) -> Substitution<T>
+fn ext_s<T>(x: Term<T>, v: Term<T>, s: &mut Substitution<T>)
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
     if let Var(_) = &x {
         // Doesn't allow multiple substitutions of single var....
         s.insert(x, v);
-        return s;
+    } else {
+        panic!("Illegal");
     }
-    panic!("Illegal");
 }
 
-type Stream<T> = dyn Iterator<Item = (Substitution<T>, T)>;
-
-fn mzero<T>() -> Box<Stream<T>>
+struct EqStream<T>
 where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
-    let vec: Vec<(Substitution<T>, T)> = Vec::new();
-    Box::new(vec.into_iter())
+    u: Term<T>,
+    v: Term<T>,
+    s: Substitution<T>,
+    c: T,
+    done: bool,
 }
 
-type Goal<T> = dyn Fn((Substitution<T>, T)) -> Box<Stream<T>>;
-
-// Returns a goal
-fn eq<T>(u: Term<T>, v: Term<T>) -> impl Fn((Substitution<T>, T)) -> Box<Stream<T>>
+impl<T> Iterator for EqStream<T>
 where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
-    move |(s, c): (Substitution<T>, T)| {
-        if let Some(s2) = unify(&u, &v, s) {
-            Box::new(vec![(s2, c)].into_iter())
+    type Item = (Substitution<T>, T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // println!("Eq next!");
+        if !self.done && unify(&self.u, &self.v, &mut self.s) {
+            self.done = true;
+            Some((self.s.clone(), self.c.clone()))
         } else {
-            mzero()
+            None
         }
     }
 }
 
-fn unify<T>(u: &Term<T>, v: &Term<T>, s: Substitution<T>) -> Option<Substitution<T>>
+struct CallFresh<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    obj: Term<T>,
+}
+
+impl<T> CallFresh<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    fn new(t: Term<T>) -> Self {
+        if let Object(o) = t {
+            Self { obj: Object(o) }
+        } else {
+            panic!("Illegal")
+        }
+    }
+}
+
+impl<T> Stream<T> for CallFresh<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    fn from_state(
+        &self,
+        s: Substitution<T>,
+        c: T,
+    ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
+        Box::new(EqStream {
+            u: Var(c.clone()),
+            v: (&self.obj).clone(),
+            s,
+            c: c.clone() + 1,
+            done: false,
+        })
+    }
+}
+
+struct Disj<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    g1: Rc<Box<dyn Stream<T>>>,
+    g2: Rc<Box<dyn Stream<T>>>,
+}
+
+impl<T> Stream<T> for Disj<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    fn from_state(
+        &self,
+        s: Substitution<T>,
+        c: T,
+    ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
+        //TODO probably interleave
+        let x = self.g1.from_state(s.clone(), c.clone());
+        let y = self.g2.from_state(s.clone(), c.clone());
+        Box::new(x.chain(y))
+    }
+}
+
+struct Conj<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    g1: Rc<Box<dyn Stream<T>>>,
+    g2: Rc<Box<dyn Stream<T>>>,
+}
+
+impl<T> Stream<T> for Conj<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    fn from_state(
+        &self,
+        s: Substitution<T>,
+        c: T,
+    ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
+        //TODO probably interleave
+        let x = self.g1.from_state(s.clone(), c.clone());
+        Box::new(ConjIterator {
+            s: x,
+            g: self.g2.clone(),
+            next: None,
+        })
+    }
+}
+
+struct ConjIterator<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    s: Box<dyn Iterator<Item = (Substitution<T>, T)>>,
+    g: Rc<Box<dyn Stream<T>>>,
+    next: Option<RefCell<Box<dyn Iterator<Item = (Substitution<T>, T)>>>>,
+}
+
+impl<T> Iterator for ConjIterator<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    type Item = (Substitution<T>, T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // println!("Conj next!");
+        if let Some(s2) = &self.next {
+            let new_stream = s2.borrow_mut().next();
+            if let Some(s) = new_stream {
+                return Some(s);
+            }
+        } else {
+            if let Some((s_, c_)) = self.s.next() {
+                self.next = Some(RefCell::from(self.g.from_state(s_.clone(), c_.clone())));
+                return (&self.next.as_ref().unwrap().borrow_mut().next()).clone();
+            }
+        }
+
+        None
+    }
+}
+
+fn main() {
+    println!("wtf");
+    let (s, c) = empty_state();
+
+    let disj = Disj {
+        g1: Rc::new(Box::new(CallFresh::new(Object(5)))),
+        g2: Rc::new(Box::new(CallFresh::new(Object(6)))),
+    };
+
+    for s in disj.from_state(s.clone(), c.clone()) {
+        println!("snd: {s:?}")
+    }
+
+    let conj = Conj {
+        g1: Rc::new(Box::new(CallFresh::new(Object(7)))),
+        g2: Rc::new(Box::new(Disj {
+            g1: Rc::new(Box::new(CallFresh::new(Object(5)))),
+            g2: Rc::new(Box::new(CallFresh::new(Object(6)))),
+        })),
+    };
+
+    for s in conj.from_state(s.clone(), c.clone()) {
+        println!("trd: {s:?}");
+    }
+
+    let fives = Fives {
+        x: Object(5),
+    };
+    for s in fives.from_state(s.clone(),c.clone()) {
+        // println!("frt {s:?}");
+        let size = s.0.len();
+        let count = s.1;
+        println!("length: {size} count: {count}");
+        println!("=======================================================");
+        // break
+    }
+}
+
+struct Fives<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    x: Term<T>,
+}
+
+impl<T> Stream<T> for Fives<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    fn from_state(
+        &self,
+        s: Substitution<T>,
+        c: T,
+    ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
+        Box::new(FivesIterator::new(self.x.clone(), s, c))
+    }
+}
+
+struct FivesIterator<T> where
+T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,{
+    x: Term<T>,
+    next: RefCell<Box<dyn Iterator<Item = (Substitution<T>, T)>>>
+}
+
+impl<T> FivesIterator<T>
+    where
+        T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,{
+        fn new(x: Term<T>, s: Substitution<T>, c: T) -> Self {
+            let cf = CallFresh {
+                obj: x.clone()
+            };
+            Self {
+                x,
+                next: RefCell::new(cf.from_state(s,c)),
+            }
+        }
+        }
+
+impl<T> Iterator for FivesIterator<T>
+    where
+        T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,{
+    type Item = (Substitution<T>, T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.next.get_mut().next();
+        if let Some((s,c)) = next {
+            let cf = CallFresh{obj: self.x.clone()};
+            self.next = RefCell::new(cf.from_state(s.clone(),c.clone()));
+            return Some((s,c))
+        }
+        None
+    }
+}
+
+
+
+fn unify<T>(u: &Term<T>, v: &Term<T>, s: &mut Substitution<T>) -> bool
 where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
 {
     let u = &walk(u, s.clone());
     let v = &walk(v, s.clone());
     match (u, v) {
-        (Var(_), Var(_)) if u == v => Some(s),
-        (Var(_), _) => Some(ext_s(u.clone(), v.clone(), s)),
-        (_, Var(_)) => Some(ext_s(v.clone(), u.clone(), s)),
+        (Var(_), Var(_)) if u == v => true,
+        (Var(_), _) => {
+            ext_s(u.clone(), v.clone(), s);
+            true
+        }
+        (_, Var(_)) => {
+            ext_s(v.clone(), u.clone(), s);
+            true
+        }
         // (Pair(car_u, cdr_u), Pair(car_v, cdr_v)) => {
         //     if let Some(s1) = unify(car_u, car_v, s.clone()) {
         //         unify(cdr_u, cdr_v, s1)
         //     } else {
-        //         None
+        //         false
         //     }
         // }
         _ => {
             if u == v {
-                Some(s)
+                true
             } else {
-                None
+                false
             }
         }
-    }
-}
-
-// returns a goal
-fn call_fresh<T>(
-    f: impl Fn(Term<T>) -> Box<Goal<T>>,
-) -> impl Fn((Substitution<T>, T)) -> Box<Stream<T>>
-where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
-{
-    move |(s, c): (Substitution<T>, T)| f(Var(c.clone()))((s, c + 1))
-}
-
-//Returns a Goal
-fn disj<T>(g1: Box<Goal<T>>, g2: Box<Goal<T>>) -> impl Fn((Substitution<T>, T)) -> Box<Stream<T>>
-where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
-{
-    move |(s, c): (Substitution<T>, T)| mplus(g1((s.clone(), c.clone())), g2((s, c)))
-}
-
-fn conj<T>(
-    g1: Box<Goal<T>>,
-    g2: Rc<Box<Goal<T>>>,
-) -> impl Fn((Substitution<T>, T)) -> Box<Stream<T>>
-where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
-{
-    move |(s, c): (Substitution<T>, T)| bind(g1((s, c)), g2.clone()) // TODO was this but won't work with using g2.... Can't move..
-
-    // move |(s, c): (Substitution<T>, T)| {
-    //     let mut ret = Vec::new();
-    //     // TODO not infinite
-    //     for st in g1((s, c)) {
-    //         let mut x = g2(st.clone());
-    //         if !x.is_empty() {
-    //             ret.append(&mut x);
-    //         }
-    //     }
-    //     return ret;
-    // }
-}
-
-struct DoubleIt<T>
-where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
-{
-    c: u32,
-    s1: Box<Stream<T>>,
-    s2: Box<Stream<T>>,
-}
-
-impl<T> Iterator for DoubleIt<T>
-where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
-{
-    type Item = (Substitution<T>, T);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        println!("next from mplus");
-        if self.c % 2 == 0 {
-            if let Some(n) = self.s1.next() {
-                return Some(n);
-            }
-        }
-        self.s2.next()
-    }
-}
-
-fn mplus<T>(st1: Box<Stream<T>>, st2: Box<Stream<T>>) -> Box<Stream<T>>
-where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
-{
-    //infinite fine but I guess, problemsssssss.... With the eval model. COuld chain but doesn't matter, all the boxes....
-    Box::new(DoubleIt {
-        c: 0,
-        s1: st1,
-        s2: st2,
-    })
-
-    // // TODO not infinite
-    // st1.append(&mut st2);
-    // st1
-}
-
-fn bind<T>(mut st: Box<Stream<T>>, g: Rc<Box<Goal<T>>>) -> Box<Stream<T>>
-where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
-{
-    // TODO not infinite
-    if let Some(x) = st.next() {
-        mplus(g(x), bind(st, g))
-    } else {
-        Box::new(mzero())
     }
 }
 
 fn empty_state() -> (Substitution<i32>, i32) {
     (HashMap::new(), 0)
-}
-
-fn a_and_b() -> impl Fn((Substitution<i32>, i32)) -> Box<Stream<i32>> {
-    conj(
-        Box::new(call_fresh(|a| Box::new(eq(a, Object(7))))),
-        Rc::new(Box::new(call_fresh(|b| {
-            Box::new(disj(
-                Box::new(eq(b.clone(), Object(5))),
-                Box::new(eq(b.clone(), Object(6))),
-            ))
-        }))),
-    )
-}
-
-fn fives(x: Term<i32>) -> impl Fn((Substitution<i32>, i32)) -> Box<Stream<i32>> {
-    // println!("fives");
-    //Ah crap execution, ..... Hmmmmmmmmm
-    // Box::new(disj(Box::new(eq(x.clone(), Object(5))), Box::new(fives(x))))
-    return move |(s,c)| {
-        Box::new(DoubleIt {
-            c: 0,
-            s1: Box::new(eq(x.clone(), Object(5))((s.clone(),c.clone()))),
-            s2: Box::new(fives(x.clone())((s,c))),
-        })
-    }
-}
-
-fn main() {
-    let trying = call_fresh(|q| Box::new(eq(q, Object(5))))(empty_state());
-    for t in trying {
-        println!("Hello, world! {t:?}");
-    }
-
-    let pffff2 = a_and_b()(empty_state());
-    for t in pffff2 {
-        println!("Whee {t:?}");
-    }
-
-    // // Stack overfllllllllllow!
-    let breaking = call_fresh(|x| Box::new(fives(x)))(empty_state());
-    for t in breaking {
-        println!("Break {t:?}")
-    }
 }
