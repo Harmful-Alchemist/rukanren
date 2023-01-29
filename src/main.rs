@@ -241,8 +241,44 @@ where
     }
 }
 
+fn unify<T>(u: &Term<T>, v: &Term<T>, s: &mut Substitution<T>) -> bool
+    where
+        T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
+{
+    let u = &walk(u, s.clone());
+    let v = &walk(v, s.clone());
+    match (u, v) {
+        (Var(_), Var(_)) if u == v => true,
+        (Var(_), _) => {
+            ext_s(u.clone(), v.clone(), s);
+            true
+        }
+        (_, Var(_)) => {
+            ext_s(v.clone(), u.clone(), s);
+            true
+        }
+        (Pair(car_u, cdr_u), Pair(car_v, cdr_v)) => {
+            if unify(car_u, car_v, s) {
+                unify(cdr_u, cdr_v, s)
+            } else {
+                false
+            }
+        }
+        _ => {
+            if u == v {
+                true
+            } else {
+                false
+            }
+        }
+    }
+}
+
+fn empty_state() -> (Substitution<i32>, i32) {
+    (HashMap::new(), 0)
+}
+
 fn main() {
-    // println!("wtf");
     let (s, c) = empty_state();
 
     let disj = CallFresh {
@@ -310,42 +346,7 @@ fn main() {
     }
 }
 
-fn unify<T>(u: &Term<T>, v: &Term<T>, s: &mut Substitution<T>) -> bool
-where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
-{
-    let u = &walk(u, s.clone());
-    let v = &walk(v, s.clone());
-    match (u, v) {
-        (Var(_), Var(_)) if u == v => true,
-        (Var(_), _) => {
-            ext_s(u.clone(), v.clone(), s);
-            true
-        }
-        (_, Var(_)) => {
-            ext_s(v.clone(), u.clone(), s);
-            true
-        }
-        (Pair(car_u, cdr_u), Pair(car_v, cdr_v)) => {
-            if unify(car_u, car_v, s) {
-                unify(cdr_u, cdr_v, s)
-            } else {
-                false
-            }
-        }
-        _ => {
-            if u == v {
-                true
-            } else {
-                false
-            }
-        }
-    }
-}
 
-fn empty_state() -> (Substitution<i32>, i32) {
-    (HashMap::new(), 0)
-}
 
 //Impl stuff.......
 struct Fives<T>
