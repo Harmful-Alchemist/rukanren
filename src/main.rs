@@ -1,8 +1,7 @@
 // From http://webyrd.net/scheme-2013/papers/HemannMuKanren2013.pdf
 
+use crate::Term::{Object, Pair, Var};
 use std::cell::RefCell;
-// use crate::Term::{Object, Pair, Var};
-use crate::Term::{Object, Var};
 use std::cmp::Eq;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -16,7 +15,7 @@ where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
     Var(T),
-    // Pair(Box<Term<T>>, Box<Term<T>>),
+    Pair(Box<Term<T>>, Box<Term<T>>),
     Object(T),
 }
 
@@ -233,10 +232,8 @@ fn main() {
         println!("trd: {s:?}");
     }
 
-    let fives = Fives {
-        x: Object(5),
-    };
-    for s in fives.from_state(s.clone(),c.clone()) {
+    let fives = Fives { x: Object(5) };
+    for s in fives.from_state(s.clone(), c.clone()) {
         // println!("frt {s:?}");
         let size = s.0.len();
         let count = s.1;
@@ -266,43 +263,45 @@ where
     }
 }
 
-struct FivesIterator<T> where
-T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,{
+struct FivesIterator<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
     x: Term<T>,
-    next: RefCell<Box<dyn Iterator<Item = (Substitution<T>, T)>>>
+    next: RefCell<Box<dyn Iterator<Item = (Substitution<T>, T)>>>,
 }
 
 impl<T> FivesIterator<T>
-    where
-        T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,{
-        fn new(x: Term<T>, s: Substitution<T>, c: T) -> Self {
-            let cf = CallFresh {
-                obj: x.clone()
-            };
-            Self {
-                x,
-                next: RefCell::new(cf.from_state(s,c)),
-            }
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    fn new(x: Term<T>, s: Substitution<T>, c: T) -> Self {
+        let cf = CallFresh { obj: x.clone() };
+        Self {
+            x,
+            next: RefCell::new(cf.from_state(s, c)),
         }
-        }
+    }
+}
 
 impl<T> Iterator for FivesIterator<T>
-    where
-        T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,{
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
     type Item = (Substitution<T>, T);
 
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.next.get_mut().next();
-        if let Some((s,c)) = next {
-            let cf = CallFresh{obj: self.x.clone()};
-            self.next = RefCell::new(cf.from_state(s.clone(),c.clone()));
-            return Some((s,c))
+        if let Some((s, c)) = next {
+            let cf = CallFresh {
+                obj: self.x.clone(),
+            };
+            self.next = RefCell::new(cf.from_state(s.clone(), c.clone()));
+            return Some((s, c));
         }
         None
     }
 }
-
-
 
 fn unify<T>(u: &Term<T>, v: &Term<T>, s: &mut Substitution<T>) -> bool
 where
@@ -320,13 +319,13 @@ where
             ext_s(v.clone(), u.clone(), s);
             true
         }
-        // (Pair(car_u, cdr_u), Pair(car_v, cdr_v)) => {
-        //     if let Some(s1) = unify(car_u, car_v, s.clone()) {
-        //         unify(cdr_u, cdr_v, s1)
-        //     } else {
-        //         false
-        //     }
-        // }
+        (Pair(car_u, cdr_u), Pair(car_v, cdr_v)) => {
+            if unify(car_u, car_v, s) {
+                unify(cdr_u, cdr_v, s)
+            } else {
+                false
+            }
+        }
         _ => {
             if u == v {
                 true
