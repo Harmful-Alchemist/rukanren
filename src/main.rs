@@ -142,11 +142,7 @@ where
     ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
         let x = self.g1.from_state(s.clone(), c.clone());
         let y = self.g2.from_state(s.clone(), c.clone());
-        Box::new(DisjIterator{
-            m: 0,
-            g1: x,
-            g2: y,
-        })
+        Box::new(DisjIterator { m: 0, g1: x, g2: y })
     }
 }
 
@@ -266,7 +262,7 @@ fn main() {
     }
 
     let fives = Fives { x: Object(5) };
-    let sixes = Fives { x: Object(6)};
+    let sixes = Fives { x: Object(6) };
     let disj = Disj {
         g1: Rc::new(Box::new(fives)),
         g2: Rc::new(Box::new(sixes)),
@@ -278,9 +274,9 @@ fn main() {
         let count = s.1;
         println!("length: {size} count: {count}");
         println!("=======================================================");
-        breaking+=1;
-        if breaking > 3 {
-            break
+        breaking += 1;
+        if breaking > 5 {
+            break;
         }
     }
 }
@@ -310,7 +306,9 @@ where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
     x: Term<T>,
-    next: RefCell<Box<dyn Iterator<Item = (Substitution<T>, T)>>>,
+    s: Substitution<T>,
+    c: T,
+    // next: RefCell<Box<dyn Iterator<Item = (Substitution<T>, T)>>>,
 }
 
 impl<T> FivesIterator<T>
@@ -321,7 +319,9 @@ where
         let cf = CallFresh { obj: x.clone() };
         Self {
             x,
-            next: RefCell::new(cf.from_state(s, c)),
+            // next: RefCell::new(cf.from_state(s, c)),
+            c,
+            s,
         }
     }
 }
@@ -333,15 +333,21 @@ where
     type Item = (Substitution<T>, T);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let next = self.next.get_mut().next();
-        if let Some((s, c)) = next {
-            let cf = CallFresh {
-                obj: self.x.clone(),
-            };
-            self.next = RefCell::new(cf.from_state(s.clone(), c.clone()));
-            return Some((s, c));
-        }
-        None
+        let cf = CallFresh {
+            obj: self.x.clone(),
+        };
+
+        cf.from_state(self.s.clone(), self.c.clone()).next()
+        // I like below better but not what it should do......, as it can evolve the state
+        // let next = self.next.get_mut().next();
+        // if let Some((s, c)) = next {
+        //     let cf = CallFresh {
+        //         obj: self.x.clone(),
+        //     };
+        //     self.next = RefCell::new(cf.from_state(s.clone(), c.clone()));
+        //     return Some((s, c));
+        // }
+        // None
     }
 }
 
