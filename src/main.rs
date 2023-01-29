@@ -1,13 +1,13 @@
 // From http://webyrd.net/scheme-2013/papers/HemannMuKanren2013.pdf
 
-use crate::Term::{Object, Pair, Var};
+// use crate::Term::{Object, Pair, Var};
+use crate::Term::{Object, Var};
 use std::cmp::Eq;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Add;
 use std::rc::Rc;
-use std::vec::IntoIter;
 
 #[derive(PartialEq, Eq, Debug, Hash, Clone)]
 enum Term<T>
@@ -15,7 +15,7 @@ where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
 {
     Var(T),
-    Pair(Box<Term<T>>, Box<Term<T>>),
+    // Pair(Box<Term<T>>, Box<Term<T>>),
     Object(T),
 }
 
@@ -26,7 +26,7 @@ where
     let mut pr = u;
     while s.contains_key(pr) {
         pr = s.get(pr).unwrap();
-    };
+    }
 
     return pr.clone();
 }
@@ -45,18 +45,17 @@ where
     panic!("Illegal");
 }
 
-type Stream<T> = dyn Iterator<Item=(Substitution<T>, T)>;
+type Stream<T> = dyn Iterator<Item = (Substitution<T>, T)>;
 
 fn mzero<T>() -> Box<Stream<T>>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T>+ 'static,
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
     let vec: Vec<(Substitution<T>, T)> = Vec::new();
     Box::new(vec.into_iter())
 }
 
-type Goal<T: Debug + Hash + Eq + Clone + Add<i32, Output = T>> =
-    dyn Fn((Substitution<T>, T)) -> Box<Stream<T>>;
+type Goal<T> = dyn Fn((Substitution<T>, T)) -> Box<Stream<T>>;
 
 // Returns a goal
 fn eq<T>(u: Term<T>, v: Term<T>) -> impl Fn((Substitution<T>, T)) -> Box<Stream<T>>
@@ -82,13 +81,13 @@ where
         (Var(_), Var(_)) if u == v => Some(s),
         (Var(_), _) => Some(ext_s(u.clone(), v.clone(), s)),
         (_, Var(_)) => Some(ext_s(v.clone(), u.clone(), s)),
-        (Pair(car_u, cdr_u), Pair(car_v, cdr_v)) => {
-            if let Some(s1) = unify(car_u, car_v, s.clone()) {
-                unify(cdr_u, cdr_v, s1)
-            } else {
-                None
-            }
-        }
+        // (Pair(car_u, cdr_u), Pair(car_v, cdr_v)) => {
+        //     if let Some(s1) = unify(car_u, car_v, s.clone()) {
+        //         unify(cdr_u, cdr_v, s1)
+        //     } else {
+        //         None
+        //     }
+        // }
         _ => {
             if u == v {
                 Some(s)
@@ -100,7 +99,9 @@ where
 }
 
 // returns a goal
-fn call_fresh<T>(f: impl Fn(Term<T>) -> Box<Goal<T>>) -> impl Fn((Substitution<T>, T)) -> Box<Stream<T>>
+fn call_fresh<T>(
+    f: impl Fn(Term<T>) -> Box<Goal<T>>,
+) -> impl Fn((Substitution<T>, T)) -> Box<Stream<T>>
 where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
 {
@@ -110,12 +111,15 @@ where
 //Returns a Goal
 fn disj<T>(g1: Box<Goal<T>>, g2: Box<Goal<T>>) -> impl Fn((Substitution<T>, T)) -> Box<Stream<T>>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T>+ 'static,
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
     move |(s, c): (Substitution<T>, T)| mplus(g1((s.clone(), c.clone())), g2((s, c)))
 }
 
-fn conj<T>(g1: Box<Goal<T>>, g2: Rc<Box<Goal<T>>>) -> impl Fn((Substitution<T>, T)) -> Box<Stream<T>>
+fn conj<T>(
+    g1: Box<Goal<T>>,
+    g2: Rc<Box<Goal<T>>>,
+) -> impl Fn((Substitution<T>, T)) -> Box<Stream<T>>
 where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
@@ -134,17 +138,20 @@ where
     // }
 }
 
-struct DoubleIt<T> where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,{
-    c: u32,
-    s1: Box<Stream<T>>,
-    s2: Box<Stream<T>>
-}
-
-impl<T> Iterator for DoubleIt<T>  where
+struct DoubleIt<T>
+where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
 {
-    type Item = (Substitution<T>,T);
+    c: u32,
+    s1: Box<Stream<T>>,
+    s2: Box<Stream<T>>,
+}
+
+impl<T> Iterator for DoubleIt<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
+{
+    type Item = (Substitution<T>, T);
 
     fn next(&mut self) -> Option<Self::Item> {
         println!("next from mplus");
@@ -153,15 +160,14 @@ impl<T> Iterator for DoubleIt<T>  where
                 return Some(n);
             }
         }
-            self.s2.next()
+        self.s2.next()
     }
 }
 
-fn mplus<T>(mut st1: Box<Stream<T>>, mut st2: Box<Stream<T>>) -> Box<Stream<T>>
+fn mplus<T>(st1: Box<Stream<T>>, st2: Box<Stream<T>>) -> Box<Stream<T>>
 where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
-
     //infinite fine but I guess, problemsssssss.... With the eval model. COuld chain but doesn't matter, all the boxes....
     Box::new(DoubleIt {
         c: 0,
@@ -218,7 +224,6 @@ fn main() {
     for t in pffff2 {
         println!("Whee {t:?}");
     }
-
 
     // // Stack overfllllllllllow!
     let breaking = call_fresh(|x| Box::new(fives(x)))(empty_state());
