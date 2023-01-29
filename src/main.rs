@@ -211,7 +211,14 @@ fn a_and_b() -> impl Fn((Substitution<i32>, i32)) -> Box<Stream<i32>> {
 fn fives(x: Term<i32>) -> impl Fn((Substitution<i32>, i32)) -> Box<Stream<i32>> {
     // println!("fives");
     //Ah crap execution, ..... Hmmmmmmmmm
-    Box::new(disj(Box::new(eq(x.clone(), Object(5))), Box::new(fives(x))))
+    // Box::new(disj(Box::new(eq(x.clone(), Object(5))), Box::new(fives(x))))
+    return move |(s,c)| {
+        Box::new(DoubleIt {
+            c: 0,
+            s1: Box::new(eq(x.clone(), Object(5))((s.clone(),c.clone()))),
+            s2: Box::new(fives(x.clone())((s,c))),
+        })
+    }
 }
 
 fn main() {
