@@ -225,8 +225,6 @@ where
     type Item = (Substitution<T>, T);
 
     fn next(&mut self) -> Option<Self::Item> {
-        // println!("Conj next!");
-        // TODO not interleaved... Sinc not the recursive call to bind and mplus......
         if let Some(s2) = &self.next {
             let new_stream = s2.borrow_mut().next();
             if let Some(s) = new_stream {
