@@ -140,10 +140,43 @@ where
         s: Substitution<T>,
         c: T,
     ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
-        //TODO probably interleave
         let x = self.g1.from_state(s.clone(), c.clone());
         let y = self.g2.from_state(s.clone(), c.clone());
-        Box::new(x.chain(y))
+        Box::new(DisjIterator{
+            m: 0,
+            g1: x,
+            g2: y,
+        })
+    }
+}
+
+struct DisjIterator<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    m: usize,
+    g1: Box<dyn Iterator<Item = (Substitution<T>, T)>>,
+    g2: Box<dyn Iterator<Item = (Substitution<T>, T)>>,
+}
+
+impl<T> Iterator for DisjIterator<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    type Item = (Substitution<T>, T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.m % 2 == 0 {
+            // println!("1st");
+            let opt = self.g1.next();
+            if !opt.is_none() {
+                self.m = self.m + 1;
+                return opt;
+            }
+        }
+        self.m = self.m + 1;
+        // println!("2nd");
+        self.g2.next()
     }
 }
 
@@ -164,7 +197,6 @@ where
         s: Substitution<T>,
         c: T,
     ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
-        //TODO probably interleave
         let x = self.g1.from_state(s.clone(), c.clone());
         Box::new(ConjIterator {
             s: x,
@@ -191,6 +223,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         // println!("Conj next!");
+        // TODO not interleaved...
         if let Some(s2) = &self.next {
             let new_stream = s2.borrow_mut().next();
             if let Some(s) = new_stream {
@@ -233,13 +266,22 @@ fn main() {
     }
 
     let fives = Fives { x: Object(5) };
-    for s in fives.from_state(s.clone(), c.clone()) {
-        // println!("frt {s:?}");
+    let sixes = Fives { x: Object(6)};
+    let disj = Disj {
+        g1: Rc::new(Box::new(fives)),
+        g2: Rc::new(Box::new(sixes)),
+    };
+    let mut breaking = 0;
+    for s in disj.from_state(s.clone(), c.clone()) {
+        println!("frt {s:?}");
         let size = s.0.len();
         let count = s.1;
         println!("length: {size} count: {count}");
         println!("=======================================================");
-        // break
+        breaking+=1;
+        if breaking > 3 {
+            break
+        }
     }
 }
 
