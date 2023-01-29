@@ -56,6 +56,32 @@ where
     }
 }
 
+struct Eq_<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    t: Term<T>,
+}
+
+impl<T> Stream<T> for Eq_<T>
+where
+    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    fn from_state(
+        &self,
+        s: Substitution<T>,
+        c: T,
+    ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
+        Box::new(EqIterator {
+            u: Var(c.clone()),
+            v: (&self.t).clone(),
+            s,
+            c: c.clone(),
+            done: false,
+        })
+    }
+}
+
 struct EqIterator<T>
 where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
@@ -88,20 +114,7 @@ struct CallFresh<T>
 where
     T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
 {
-    obj: Term<T>,
-}
-
-impl<T> CallFresh<T>
-where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
-{
-    fn new(t: Term<T>) -> Self {
-        if let Object(o) = t {
-            Self { obj: Object(o) }
-        } else {
-            panic!("Illegal")
-        }
-    }
+    s: Box<dyn Stream<T>>,
 }
 
 impl<T> Stream<T> for CallFresh<T>
@@ -113,13 +126,7 @@ where
         s: Substitution<T>,
         c: T,
     ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
-        Box::new(EqIterator {
-            u: Var(c.clone()),
-            v: (&self.obj).clone(),
-            s,
-            c: c.clone() + 1,
-            done: false,
-        })
+        Box::new(self.s.from_state(s, c + 1))
     }
 }
 
@@ -219,7 +226,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         // println!("Conj next!");
-        // TODO not interleaved...
+        // TODO not interleaved... Sinc not the recursive call to bind and mplus......
         if let Some(s2) = &self.next {
             let new_stream = s2.borrow_mut().next();
             if let Some(s) = new_stream {
@@ -237,25 +244,33 @@ where
 }
 
 fn main() {
-    println!("wtf");
+    // println!("wtf");
     let (s, c) = empty_state();
 
-    let disj = Disj {
-        g1: Rc::new(Box::new(CallFresh::new(Object(5)))),
-        g2: Rc::new(Box::new(CallFresh::new(Object(6)))),
+    let disj = CallFresh {
+        s: Box::new(Disj {
+            g1: Rc::new(Box::new(Eq_ { t: Object(5) })),
+            g2: Rc::new(Box::new(Eq_ { t: Object(6) })),
+        }),
     };
 
     for s in disj.from_state(s.clone(), c.clone()) {
         println!("snd: {s:?}")
     }
 
+    Rc::new(Box::new(CallFresh {
+        s: Box::new(Eq_ { t: Object(7) }),
+    }));
+
     let conj = Conj {
-        g1: Rc::new(Box::new(CallFresh::new(Object(7)))),
-        g2: Rc::new(Box::new(Disj {
-            // Hmm is this correct? It prints the right, but that's just cause Var(0) can only be 7. If it could be more maybe wrong? Disj, both can be true and we don't have
-            // y = 5 /\ y = 6 but we have y=5 /\ z=6. But maybe is ok since only 2 entries so far. Let's see when we extend.
-            g1: Rc::new(Box::new(CallFresh::new(Object(5)))),
-            g2: Rc::new(Box::new(CallFresh::new(Object(6)))),
+        g1: Rc::new(Box::new(CallFresh {
+            s: Box::new(Eq_ { t: Object(7) }),
+        })),
+        g2: Rc::new(Box::new(CallFresh {
+            s: Box::new(Disj {
+                g1: Rc::new(Box::new(Eq_ { t: Object(5) })),
+                g2: Rc::new(Box::new(Eq_ { t: Object(6) })),
+            }),
         })),
     };
 
@@ -265,9 +280,11 @@ fn main() {
 
     let fives = Fives { x: Object(5) };
     let sixes = Fives { x: Object(6) };
-    let disj = Disj {
-        g1: Rc::new(Box::new(fives)),
-        g2: Rc::new(Box::new(sixes)),
+    let disj = CallFresh {
+        s: Box::new(Disj {
+            g1: Rc::new(Box::new(fives)),
+            g2: Rc::new(Box::new(sixes)),
+        }),
     };
     let mut breaking = 0;
     for s in disj.from_state(s.clone(), c.clone()) {
@@ -283,84 +300,15 @@ fn main() {
     }
 
     // well these are
-    let noanswer = Conj {
-        g1: Rc::new(Box::new(CallFresh { obj: Object(3) })),
-        g2: Rc::new(Box::new((CallFresh { obj: Var(0) }))),
+    let noanswer = CallFresh {
+        s: Box::new(Conj {
+            g1: Rc::new(Box::new(Eq_ { t: Object(3) })),
+            g2: Rc::new(Box::new(Eq_ { t: Object(4) })),
+        }),
     };
 
     for s in noanswer.from_state(s.clone(), c.clone()) {
         println!("dunno {s:?}")
-    }
-}
-
-struct Fives<T>
-where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
-{
-    x: Term<T>,
-}
-
-impl<T> Stream<T> for Fives<T>
-where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
-{
-    fn from_state(
-        &self,
-        s: Substitution<T>,
-        c: T,
-    ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
-        Box::new(FivesIterator::new(self.x.clone(), s, c))
-    }
-}
-
-struct FivesIterator<T>
-where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
-{
-    x: Term<T>,
-    s: Substitution<T>,
-    c: T,
-    // next: RefCell<Box<dyn Iterator<Item = (Substitution<T>, T)>>>,
-}
-
-impl<T> FivesIterator<T>
-where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
-{
-    fn new(x: Term<T>, s: Substitution<T>, c: T) -> Self {
-        let cf = CallFresh { obj: x.clone() };
-        Self {
-            x,
-            // next: RefCell::new(cf.from_state(s, c)),
-            c,
-            s,
-        }
-    }
-}
-
-impl<T> Iterator for FivesIterator<T>
-where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
-{
-    type Item = (Substitution<T>, T);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let cf = CallFresh {
-            obj: self.x.clone(),
-        };
-
-        cf.from_state(self.s.clone(), self.c.clone()).next()
-        // I like below better but not what it should do......, as it can evolve the state
-
-        // let next = self.next.get_mut().next();
-        // if let Some((s, c)) = next {
-        //     let cf = CallFresh {
-        //         obj: self.x.clone(),
-        //     };
-        //     self.next = RefCell::new(cf.from_state(s.clone(), c.clone()));
-        //     return Some((s, c));
-        // }
-        // None
     }
 }
 
@@ -400,3 +348,59 @@ where
 fn empty_state() -> (Substitution<i32>, i32) {
     (HashMap::new(), 0)
 }
+
+//Impl stuff.......
+struct Fives<T>
+    where
+        T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    x: Term<T>,
+}
+
+impl<T> Stream<T> for Fives<T>
+    where
+        T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    fn from_state(
+        &self,
+        s: Substitution<T>,
+        c: T,
+    ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
+        Box::new(FivesIterator::new(self.x.clone(), s, c))
+    }
+}
+
+struct FivesIterator<T>
+    where
+        T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    x: Term<T>,
+    s: Substitution<T>,
+    c: T,
+}
+
+impl<T> FivesIterator<T>
+    where
+        T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    fn new(x: Term<T>, s: Substitution<T>, c: T) -> Self {
+        Self {
+            x,
+            c,
+            s,
+        }
+    }
+}
+
+impl<T> Iterator for FivesIterator<T>
+    where
+        T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+{
+    type Item = (Substitution<T>, T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let eq = Eq_ { t: self.x.clone() };
+        eq.from_state(self.s.clone(), self.c.clone()).next()
+    }
+}
+
