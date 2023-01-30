@@ -5,13 +5,11 @@ use crate::Term::{Object, Var};
 use std::cell::RefCell;
 use std::cmp::Eq;
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
-use std::iter::Map;
-use std::ops::Add;
 use std::rc::Rc;
 
-#[derive(PartialEq, Eq, Debug, Hash, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone)]
 enum Term<T>
 where
     T: Debug + Hash + Eq + Clone + 'static,
@@ -20,6 +18,18 @@ where
     // TODO pairs.
     // Pair(Box<Term<T>>, Box<Term<T>>),
     Object(T),
+}
+
+impl<T> Debug for Term<T>
+where
+    T: Debug + Hash + Eq + Clone + 'static,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Var(n) => write!(f, "_{n}"),
+            Object(o) => o.fmt(f),
+        }
+    }
 }
 
 trait Stream<T>
@@ -38,8 +48,12 @@ where
     T: Debug + Hash + Eq + Clone + 'static,
 {
     let mut pr = u;
-    if s.contains_key(pr) {
-        pr = s.get(pr).unwrap();
+    while s.contains_key(pr) {
+        let pr_ = s.get(pr).unwrap();
+        if pr == pr_ {
+            break;
+        }
+        pr = pr_;
     }
 
     return pr.clone();
@@ -63,7 +77,8 @@ struct Eq_<T>
 where
     T: Debug + Hash + Eq + Clone + 'static,
 {
-    t: Term<T>,
+    u: Term<T>,
+    v: Term<T>,
 }
 
 impl<T> Stream<T> for Eq_<T>
@@ -76,8 +91,8 @@ where
         c: i32,
     ) -> Box<dyn Iterator<Item = (Substitution<T>, i32)>> {
         Box::new(EqIterator {
-            u: Var(c.clone()),
-            v: (&self.t).clone(),
+            u: self.u.clone(),
+            v: self.v.clone(),
             s,
             c: c.clone(),
             done: false,
@@ -126,9 +141,10 @@ where
 {
     fn from_state(
         &self,
-        s: Substitution<T>,
+        mut s: Substitution<T>,
         c: i32,
     ) -> Box<dyn Iterator<Item = (Substitution<T>, i32)>> {
+        ext_s(Var(c), Var(c), &mut s);
         Box::new(self.s.from_state(s, c + 1))
     }
 }
@@ -286,8 +302,14 @@ fn main() {
 
     let disj = CallFresh {
         s: Box::new(Disj {
-            g1: Rc::new(Box::new(Eq_ { t: Object(5) })),
-            g2: Rc::new(Box::new(Eq_ { t: Object(6) })),
+            g1: Rc::new(Box::new(Eq_ {
+                v: Var(0),
+                u: Object(5),
+            })),
+            g2: Rc::new(Box::new(Eq_ {
+                v: Var(0),
+                u: Object(6),
+            })),
         }),
     };
 
@@ -296,15 +318,30 @@ fn main() {
     }
 
     Rc::new(Box::new(CallFresh {
-        s: Box::new(Eq_ { t: Object(7) }),
+        s: Box::new(Eq_ {
+            v: Var(0),
+            u: Object(7),
+        }),
     }));
 
     let conj = conj_plus!(
         CallFresh {
-            s: Box::new(Eq_ { t: Object(7) }),
+            s: Box::new(Eq_ {
+                u: Var(0),
+                v: Object(7)
+            }),
         },
         CallFresh {
-            s: Box::new(disj_plus!(Eq_ { t: Object(5) }, Eq_ { t: Object(6) }))
+            s: Box::new(disj_plus!(
+                Eq_ {
+                    u: Var(1),
+                    v: Object(5)
+                },
+                Eq_ {
+                    u: Var(1),
+                    v: Object(6)
+                }
+            ))
         }
     );
 
@@ -336,8 +373,14 @@ fn main() {
     // well these are
     let noanswer = CallFresh {
         s: Box::new(Conj {
-            g1: Rc::new(Box::new(Eq_ { t: Object(3) })),
-            g2: Rc::new(Box::new(Eq_ { t: Object(4) })),
+            g1: Rc::new(Box::new(Eq_ {
+                u: Var(0),
+                v: Object(3),
+            })),
+            g2: Rc::new(Box::new(Eq_ {
+                u: Var(0),
+                v: Object(4),
+            })),
         }),
     };
 
@@ -345,62 +388,108 @@ fn main() {
         println!("dunno {s:?}")
     }
 
-    let conde = conde!(
-        (Eq_ { t: Object(3) }, Eq_ { t: Object(3) }),
-        (Eq_ { t: Object(4) }, Eq_ { t: Object(4) })
-    );
+    let conde = || {
+        conde!(
+            (
+                Eq_ {
+                    u: Var(0),
+                    v: Object(3)
+                },
+                Eq_ {
+                    u: Var(0),
+                    v: Object(3)
+                }
+            ),
+            (
+                Eq_ {
+                    u: Var(0),
+                    v: Object(4)
+                },
+                Eq_ {
+                    u: Var(0),
+                    v: Object(4)
+                }
+            )
+        )
+    };
 
-    //TODO hmm have to keep the count (x&y's in your head........, maybe macro x,y etc. to correct var count in macro? To not have closures.)
-    let fresh = fresh!((1, 2), Eq_ { t: Var(1) }, Eq_ { t: Object(3) });
+    let condes = run_maybe_star(Box::new(conde()));
+    println!("conde* {condes:?}");
+
+    let conde1 = run_maybe(1, Box::new(conde()));
+    println!("conde1 {conde1:?}");
+
+    //TODO still need to keep count yourself...... But could use replacing in the macro x=0 y=1 etc depending on 1st list.
+    // now need to keep track manually... Difficult when nesting.
+    let fresh = fresh!(
+        (0, 1),
+        Eq_ {
+            u: Var(0),
+            v: Var(1)
+        },
+        Eq_ {
+            u: Var(0),
+            v: Object(3)
+        }
+    );
 
     for s in fresh.from_state(s.clone(), c.clone()) {
         println!("macros1 {s:?}");
     }
 
-    //Hmmmmmmmmmmmmm now can do (== q 'pea) but not (== 'pea 'pea)
-    let ehm = run_maybe_star(Box::new(fresh!((1), Eq_ { t: Object("pea") })));
-    println!("book_cell14: {ehm:?}");
+    let fm = run_maybe_star(Box::new(fresh));
 
-    //Hmmmmmmmmmmmmm now can do (== q p), we get one unbound var
-    let ehm: Vec<Term<String>> = run_maybe_star(Box::new(fresh!((1), Eq_ { t: Var(2) })));
+    println!("run macros {fm:?}");
+
+    let ehm = run_maybe_star(Box::new(fresh!(
+        (0),
+        disj_plus!(
+            Eq_ {
+                u: Var(0),
+                v: Object("pea")
+            },
+            Eq_ {
+                u: Var(0),
+                v: Object("pod")
+            }
+        )
+    )));
+    println!("book_cell14_inspired: {ehm:?}");
+
+    let ehm = run_maybe_star(Box::new(fresh!(
+        (0),
+        Eq_ {
+            u: Var(10),
+            v: Object("pea")
+        }
+    )));
     println!("unbound...: {ehm:?}");
 
-    //Var 1 remains unbound
-    let ehm = run_maybe_star(Box::new(fresh!((1,2), Eq_ { t: Object("pea") })));
+    let ehm = run_maybe_star(Box::new(fresh!(
+        (0, 1),
+        Eq_ {
+            u: Var(1),
+            v: Object("pea")
+        }
+    )));
     println!("book_cell24: {ehm:?}");
-}
-
-enum Reified<T>
-where
-    T: Debug + Hash + Eq + Clone,
-{
-    Value(T),
-    Variable(T),
-}
-
-fn mk_reify<T>(
-    scs: Box<dyn Iterator<Item = (Substitution<T>, i32)>>,
-) -> Map<Box<dyn Iterator<Item = (Substitution<T>, i32)>>, fn((Substitution<T>, i32)) -> Term<T>>
-where
-    T: Debug + Hash + Eq + Clone,
-{
-    scs.map(reify_state)
 }
 
 fn reify_state<T>((s, _c): (Substitution<T>, i32)) -> Term<T>
 where
     T: Debug + Hash + Eq + Clone,
 {
-    let fst_var: Term<T> = Var(1);
+    let fst_var: Term<T> = Var(0);
     walk(&fst_var, s)
 }
 
-//TODO the macros
+//TODO the macros? Maybe... Take car tho now requiring manual call to fresh, want to move here but need to be clearer with fresh too.
 fn run_maybe<T>(n: usize, fresh_body: Box<dyn Stream<T>>) -> Vec<Term<T>>
 where
     T: Debug + Hash + Eq + Clone,
 {
-    fresh_body.from_state(HashMap::new(), 0)
+    fresh_body
+        .from_state(HashMap::new(), 0)
         .map(reify_state)
         .take(n)
         .collect()
@@ -410,7 +499,8 @@ fn run_maybe_star<T>(fresh_body: Box<dyn Stream<T>>) -> Vec<Term<T>>
 where
     T: Debug + Hash + Eq + Clone,
 {
-    fresh_body.from_state(HashMap::new(), 0)
+    fresh_body
+        .from_state(HashMap::new(), 0)
         .map(reify_state)
         .collect()
 }
@@ -444,7 +534,7 @@ macro_rules! fresh {
         CallFresh {s: Box::new(conj_plus!($head $(, $tail)*))}
     };
     (($v:expr $(, $vs:expr)*), $head:expr $(, $tail:expr)*) => {
-        CallFresh {s: Box::new(fresh!(($($vs:expr),*), $head $(, $tail)*))}
+        CallFresh {s: Box::new(fresh!(($($vs),*), $head $(, $tail)*))}
     }
 }
 
@@ -494,7 +584,10 @@ where
     type Item = (Substitution<T>, i32);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let eq = Eq_ { t: self.x.clone() };
+        let eq = Eq_ {
+            v: Var(0),
+            u: self.x.clone(),
+        };
         eq.from_state(self.s.clone(), self.c.clone()).next()
     }
 }
