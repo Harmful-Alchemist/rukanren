@@ -1,41 +1,44 @@
 // From http://webyrd.net/scheme-2013/papers/HemannMuKanren2013.pdf
 
-use crate::Term::{Object, Pair, Var};
+// use crate::Term::{Object, Pair, Var};
+use crate::Term::{Object, Var};
 use std::cell::RefCell;
 use std::cmp::Eq;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::iter::Map;
 use std::ops::Add;
 use std::rc::Rc;
 
 #[derive(PartialEq, Eq, Debug, Hash, Clone)]
 enum Term<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
-    Var(T),
-    Pair(Box<Term<T>>, Box<Term<T>>),
+    Var(i32),
+    // TODO pairs.
+    // Pair(Box<Term<T>>, Box<Term<T>>),
     Object(T),
 }
 
 trait Stream<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     fn from_state(
         &self,
         s: Substitution<T>,
-        c: T,
-    ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>>;
+        c: i32,
+    ) -> Box<dyn Iterator<Item = (Substitution<T>, i32)>>;
 }
 
 fn walk<T: Eq>(u: &Term<T>, s: Substitution<T>) -> Term<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     let mut pr = u;
-    while s.contains_key(pr) {
+    if s.contains_key(pr) {
         pr = s.get(pr).unwrap();
     }
 
@@ -46,7 +49,7 @@ type Substitution<T> = HashMap<Term<T>, Term<T>>;
 
 fn ext_s<T>(x: Term<T>, v: Term<T>, s: &mut Substitution<T>)
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     if let Var(_) = &x {
         // Doesn't allow multiple substitutions of single var....
@@ -58,20 +61,20 @@ where
 
 struct Eq_<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     t: Term<T>,
 }
 
 impl<T> Stream<T> for Eq_<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     fn from_state(
         &self,
         s: Substitution<T>,
-        c: T,
-    ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
+        c: i32,
+    ) -> Box<dyn Iterator<Item = (Substitution<T>, i32)>> {
         Box::new(EqIterator {
             u: Var(c.clone()),
             v: (&self.t).clone(),
@@ -84,20 +87,20 @@ where
 
 struct EqIterator<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     u: Term<T>,
     v: Term<T>,
     s: Substitution<T>,
-    c: T,
+    c: i32,
     done: bool,
 }
 
 impl<T> Iterator for EqIterator<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
-    type Item = (Substitution<T>, T);
+    type Item = (Substitution<T>, i32);
 
     fn next(&mut self) -> Option<Self::Item> {
         // println!("Eq next!");
@@ -112,27 +115,27 @@ where
 
 struct CallFresh<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     s: Box<dyn Stream<T>>,
 }
 
 impl<T> Stream<T> for CallFresh<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     fn from_state(
         &self,
         s: Substitution<T>,
-        c: T,
-    ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
+        c: i32,
+    ) -> Box<dyn Iterator<Item = (Substitution<T>, i32)>> {
         Box::new(self.s.from_state(s, c + 1))
     }
 }
 
 struct Disj<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     g1: Rc<Box<dyn Stream<T>>>,
     g2: Rc<Box<dyn Stream<T>>>,
@@ -140,13 +143,13 @@ where
 
 impl<T> Stream<T> for Disj<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     fn from_state(
         &self,
         s: Substitution<T>,
-        c: T,
-    ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
+        c: i32,
+    ) -> Box<dyn Iterator<Item = (Substitution<T>, i32)>> {
         let x = self.g1.from_state(s.clone(), c.clone());
         let y = self.g2.from_state(s.clone(), c.clone());
         Box::new(DisjIterator { m: 0, g1: x, g2: y })
@@ -155,18 +158,18 @@ where
 
 struct DisjIterator<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     m: usize,
-    g1: Box<dyn Iterator<Item = (Substitution<T>, T)>>,
-    g2: Box<dyn Iterator<Item = (Substitution<T>, T)>>,
+    g1: Box<dyn Iterator<Item = (Substitution<T>, i32)>>,
+    g2: Box<dyn Iterator<Item = (Substitution<T>, i32)>>,
 }
 
 impl<T> Iterator for DisjIterator<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
-    type Item = (Substitution<T>, T);
+    type Item = (Substitution<T>, i32);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.m % 2 == 0 {
@@ -185,7 +188,7 @@ where
 
 struct Conj<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     g1: Rc<Box<dyn Stream<T>>>,
     g2: Rc<Box<dyn Stream<T>>>,
@@ -193,13 +196,13 @@ where
 
 impl<T> Stream<T> for Conj<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     fn from_state(
         &self,
         s: Substitution<T>,
-        c: T,
-    ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
+        c: i32,
+    ) -> Box<dyn Iterator<Item = (Substitution<T>, i32)>> {
         let x = self.g1.from_state(s.clone(), c.clone());
         Box::new(ConjIterator {
             s: x,
@@ -211,18 +214,18 @@ where
 
 struct ConjIterator<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
-    s: Box<dyn Iterator<Item = (Substitution<T>, T)>>,
+    s: Box<dyn Iterator<Item = (Substitution<T>, i32)>>,
     g: Rc<Box<dyn Stream<T>>>,
-    next: Option<RefCell<Box<dyn Iterator<Item = (Substitution<T>, T)>>>>,
+    next: Option<RefCell<Box<dyn Iterator<Item = (Substitution<T>, i32)>>>>,
 }
 
 impl<T> Iterator for ConjIterator<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
-    type Item = (Substitution<T>, T);
+    type Item = (Substitution<T>, i32);
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(s2) = &self.next {
@@ -243,7 +246,7 @@ where
 
 fn unify<T>(u: &Term<T>, v: &Term<T>, s: &mut Substitution<T>) -> bool
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T>,
+    T: Debug + Hash + Eq + Clone,
 {
     let u = &walk(u, s.clone());
     let v = &walk(v, s.clone());
@@ -257,13 +260,13 @@ where
             ext_s(v.clone(), u.clone(), s);
             true
         }
-        (Pair(car_u, cdr_u), Pair(car_v, cdr_v)) => {
-            if unify(car_u, car_v, s) {
-                unify(cdr_u, cdr_v, s)
-            } else {
-                false
-            }
-        }
+        // (Pair(car_u, cdr_u), Pair(car_v, cdr_v)) => {
+        //     if unify(car_u, car_v, s) {
+        //         unify(cdr_u, cdr_v, s)
+        //     } else {
+        //         false
+        //     }
+        // }
         _ => {
             if u == v {
                 true
@@ -346,6 +349,70 @@ fn main() {
         (Eq_ { t: Object(3) }, Eq_ { t: Object(3) }),
         (Eq_ { t: Object(4) }, Eq_ { t: Object(4) })
     );
+
+    //TODO hmm have to keep the count (x&y's in your head........, maybe macro x,y etc. to correct var count in macro? To not have closures.)
+    let fresh = fresh!((1, 2), Eq_ { t: Var(1) }, Eq_ { t: Object(3) });
+
+    for s in fresh.from_state(s.clone(), c.clone()) {
+        println!("macros1 {s:?}");
+    }
+
+    //Hmmmmmmmmmmmmm now can do (== q 'pea) but not (== 'pea 'pea)
+    let ehm = run_maybe_star(Box::new(fresh!((1), Eq_ { t: Object("pea") })));
+    println!("book_cell14: {ehm:?}");
+
+    //Hmmmmmmmmmmmmm now can do (== q p), we get one unbound var
+    let ehm: Vec<Term<String>> = run_maybe_star(Box::new(fresh!((1), Eq_ { t: Var(2) })));
+    println!("unbound...: {ehm:?}");
+
+    //Var 1 remains unbound
+    let ehm = run_maybe_star(Box::new(fresh!((1,2), Eq_ { t: Object("pea") })));
+    println!("book_cell24: {ehm:?}");
+}
+
+enum Reified<T>
+where
+    T: Debug + Hash + Eq + Clone,
+{
+    Value(T),
+    Variable(T),
+}
+
+fn mk_reify<T>(
+    scs: Box<dyn Iterator<Item = (Substitution<T>, i32)>>,
+) -> Map<Box<dyn Iterator<Item = (Substitution<T>, i32)>>, fn((Substitution<T>, i32)) -> Term<T>>
+where
+    T: Debug + Hash + Eq + Clone,
+{
+    scs.map(reify_state)
+}
+
+fn reify_state<T>((s, _c): (Substitution<T>, i32)) -> Term<T>
+where
+    T: Debug + Hash + Eq + Clone,
+{
+    let fst_var: Term<T> = Var(1);
+    walk(&fst_var, s)
+}
+
+//TODO the macros
+fn run_maybe<T>(n: usize, fresh_body: Box<dyn Stream<T>>) -> Vec<Term<T>>
+where
+    T: Debug + Hash + Eq + Clone,
+{
+    fresh_body.from_state(HashMap::new(), 0)
+        .map(reify_state)
+        .take(n)
+        .collect()
+}
+
+fn run_maybe_star<T>(fresh_body: Box<dyn Stream<T>>) -> Vec<Term<T>>
+where
+    T: Debug + Hash + Eq + Clone,
+{
+    fresh_body.from_state(HashMap::new(), 0)
+        .map(reify_state)
+        .collect()
 }
 
 #[macro_export]
@@ -369,50 +436,62 @@ macro_rules! conde {
     }
 }
 
+#[macro_export]
+macro_rules! fresh {
+//     fresh(<vars>) (<stmts>)
+    // can do a loop fresh!(amount, (<stmts>,))
+    (($v:expr), $head:expr $(, $tail:expr)*) => {
+        CallFresh {s: Box::new(conj_plus!($head $(, $tail)*))}
+    };
+    (($v:expr $(, $vs:expr)*), $head:expr $(, $tail:expr)*) => {
+        CallFresh {s: Box::new(fresh!(($($vs:expr),*), $head $(, $tail)*))}
+    }
+}
+
 //Impl stuff.......
 struct Fives<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     x: Term<T>,
 }
 
 impl<T> Stream<T> for Fives<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     fn from_state(
         &self,
         s: Substitution<T>,
-        c: T,
-    ) -> Box<dyn Iterator<Item = (Substitution<T>, T)>> {
+        c: i32,
+    ) -> Box<dyn Iterator<Item = (Substitution<T>, i32)>> {
         Box::new(FivesIterator::new(self.x.clone(), s, c))
     }
 }
 
 struct FivesIterator<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
     x: Term<T>,
     s: Substitution<T>,
-    c: T,
+    c: i32,
 }
 
 impl<T> FivesIterator<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
-    fn new(x: Term<T>, s: Substitution<T>, c: T) -> Self {
+    fn new(x: Term<T>, s: Substitution<T>, c: i32) -> Self {
         Self { x, c, s }
     }
 }
 
 impl<T> Iterator for FivesIterator<T>
 where
-    T: Debug + Hash + Eq + Clone + Add<i32, Output = T> + 'static,
+    T: Debug + Hash + Eq + Clone + 'static,
 {
-    type Item = (Substitution<T>, T);
+    type Item = (Substitution<T>, i32);
 
     fn next(&mut self) -> Option<Self::Item> {
         let eq = Eq_ { t: self.x.clone() };
