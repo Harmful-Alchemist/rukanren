@@ -341,6 +341,11 @@ fn main() {
     for s in noanswer.from_state(s.clone(), c.clone()) {
         println!("dunno {s:?}")
     }
+
+    let conde = conde!(
+        (Eq_ { t: Object(3) }, Eq_ { t: Object(3) }),
+        (Eq_ { t: Object(4) }, Eq_ { t: Object(4) })
+    );
 }
 
 #[macro_export]
@@ -353,6 +358,15 @@ macro_rules! conj_plus {
 macro_rules! disj_plus {
     ($head:expr) => ($head);
     ($head:expr $(, $tail:expr)*) => (Disj { g1: Rc::new(Box::new($head)), g2: Rc::new(Box::new(disj_plus!($($tail),*)))});
+}
+
+#[macro_export]
+macro_rules! conde {
+    ($(($head:expr $(, $tail:expr)*)),*) => {
+                disj_plus!( $(
+                conj_plus!($head $(, $tail)*)
+            ),*)
+    }
 }
 
 //Impl stuff.......
