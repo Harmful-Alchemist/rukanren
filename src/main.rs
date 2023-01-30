@@ -1,7 +1,7 @@
 // From http://webyrd.net/scheme-2013/papers/HemannMuKanren2013.pdf
 
-// use crate::Term::{Object, Pair, Var};
-use crate::Term::{Object, Var};
+use crate::Term::{Object, Pair, Var};
+// use crate::Term::{Object, Var};
 use std::cell::RefCell;
 use std::cmp::Eq;
 use std::collections::HashMap;
@@ -15,8 +15,7 @@ where
     T: Debug + Hash + Eq + Clone + 'static,
 {
     Var(i32),
-    // TODO pairs.
-    // Pair(Box<Term<T>>, Box<Term<T>>),
+    Pair(Box<Term<T>>, Box<Term<T>>),
     Object(T),
 }
 
@@ -28,6 +27,7 @@ where
         match self {
             Var(n) => write!(f, "_{n}"),
             Object(o) => o.fmt(f),
+            Pair(t1,t2) => write!(f, "({t1:?},{t2:?})")
         }
     }
 }
@@ -276,13 +276,13 @@ where
             ext_s(v.clone(), u.clone(), s);
             true
         }
-        // (Pair(car_u, cdr_u), Pair(car_v, cdr_v)) => {
-        //     if unify(car_u, car_v, s) {
-        //         unify(cdr_u, cdr_v, s)
-        //     } else {
-        //         false
-        //     }
-        // }
+        (Pair(car_u, cdr_u), Pair(car_v, cdr_v)) => {
+            if unify(car_u, car_v, s) {
+                unify(cdr_u, cdr_v, s)
+            } else {
+                false
+            }
+        }
         _ => {
             if u == v {
                 true
@@ -454,7 +454,7 @@ fn main() {
             }
         )
     )));
-    println!("book_cell14_inspired: {ehm:?}");
+    println!("book_cell_1.14_inspired: {ehm:?}");
 
     let ehm = run_maybe_star(Box::new(fresh!(
         (0),
@@ -472,15 +472,26 @@ fn main() {
             v: Object("pea")
         }
     )));
-    println!("book_cell24: {ehm:?}");
+    println!("book_cell_1.24: {ehm:?}");
 }
 
-fn reify_state<T>((s, _c): (Substitution<T>, i32)) -> Term<T>
+fn reify_state<T>((s, _c): (Substitution<T>, i32)) -> Vec<Term<T>>
 where
     T: Debug + Hash + Eq + Clone,
 {
     let fst_var: Term<T> = Var(0);
-    walk(&fst_var, s)
+    match walk(&fst_var, s.clone()) {
+        Pair(x, y) => {let mut a = walk_star(x, s.clone()); let mut b = walk_star(y,s); a.append(&mut b); a },
+        x => {vec![x]},
+    }
+}
+
+fn walk_star<T>(x: Box<Term<T>>,s: Substitution<T>) -> Vec<Term<T>> where
+    T: Debug + Hash + Eq + Clone, {
+    match walk(&x, s.clone()) {
+        Pair(x, y) => {let mut a = walk_star(x, s.clone()); let mut b = walk_star(y,s); a.append(&mut b); a },
+        x => {vec![x]},
+    }
 }
 
 //TODO the macros? Maybe... Take car tho now requiring manual call to fresh, want to move here but need to be clearer with fresh too.
@@ -490,7 +501,7 @@ where
 {
     fresh_body
         .from_state(HashMap::new(), 0)
-        .map(reify_state)
+        .flat_map(reify_state)
         .take(n)
         .collect()
 }
@@ -501,7 +512,7 @@ where
 {
     fresh_body
         .from_state(HashMap::new(), 0)
-        .map(reify_state)
+        .flat_map(reify_state)
         .collect()
 }
 
@@ -528,8 +539,6 @@ macro_rules! conde {
 
 #[macro_export]
 macro_rules! fresh {
-//     fresh(<vars>) (<stmts>)
-    // can do a loop fresh!(amount, (<stmts>,))
     (($v:expr), $head:expr $(, $tail:expr)*) => {
         CallFresh {s: Box::new(conj_plus!($head $(, $tail)*))}
     };
